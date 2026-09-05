@@ -12,22 +12,22 @@
 #define PIN_TXD 32
 #define PIN_RXD 35
 
-//position of RAW data
-#define ACCX_POS 5
-#define ACCY_POS 7
-#define ACCZ_POS 9
-#define GYRX_POS 5
-#define GYRY_POS 7
-#define GYRZ_POS 9
-
 //position of PROC data
-#define LINACCX_POS 5
-#define LINACCY_POS 9
-#define LINACCZ_POS 13
-#define R_POS 5
-#define P_POS 7
-#define Y_POS 9
-#define FLOAT_FROM_BYTE_ARRAY(buff, n) ((buff[n] << 24) | (buff[n + 1] << 16) | (buff[n + 2] << 8) | (buff[n + 3]));
+#define GYRX_POS 5
+#define GYRY_POS 9
+#define GYRZ_POS 13
+#define ACCX_POS 5
+#define ACCY_POS 9
+#define ACCZ_POS 13
+
+//position of EF data (Quaternion)
+#define QUATA_POS 5
+#define QUATB_POS 7
+#define QUATC_POS 9
+#define QUATD_POS 11
+#define FLOAT_FROM_BYTE_ARRAY(buff, n) ((buff[n] << 8) | (buff[n + 1]));
+#define FLOAT_FROM_DOUBLE_BYTE_ARRAY(buff, n) ((buff[n] << 24) | (buff[n + 1] << 16) | (buff[n + 2] << 8) | (buff[n + 3]));
+
 
 /* Qvalues for each fields */
 #define IMU_QN_ACC 0
@@ -42,18 +42,19 @@ union float_int
 
 struct strcut_imu_data
 {
-    union float_int acc_x;
-    union float_int acc_y;
-    union float_int acc_z;
     union float_int gyr_x;
     union float_int gyr_y;
     union float_int gyr_z;
-    union float_int roll;
-    union float_int pitch;
-    union float_int yaw;
-    union float_int linacc_x;
-    union float_int linacc_y;
-    union float_int linacc_z;
+    union float_int acc_x;
+    union float_int acc_y;
+    union float_int acc_z;
+    union float_int quat_a;
+    union float_int quat_b;
+    union float_int quat_c;
+    union float_int quat_d;
+//    union float_int roll;
+//    union float_int pitch;
+//    union float_int yaw;
 };
 struct strcut_imu_data imu = {0};
 
@@ -62,29 +63,29 @@ static intr_handle_t handle_console;
 uint8_t test = 0;
 
 // Receive buffer to collect incoming data
-uint8_t rxbuf[128] = {0};     //default buffer
-uint8_t rxbuf_rawAcc[128] = {0};     //rawAcc buffer
-uint8_t rxbuf_rawGyro[128] = {0};     //rawGyro buffer
-uint8_t rxbuf_procAcc[128] = {0};     //procAcc buffer
-uint8_t rxbuf_procEuler[128] = {0};     //procEuler buffer
+uint8_t rxbuf[128] = {0};     			//default buffer
+uint8_t rxbuf_procGyro[128] = {0};     	//procGyro buffer
+uint8_t rxbuf_procAcc[128] = {0};     	//procAcc buffer
+uint8_t rxbuf_Quat[128] = {0};     		//Quat buffer
+//uint8_t rxbuf_procEuler[128] = {0};     //procEuler buffer
 
 //uint8_t rxbuf_imu[128] = {0}; //buffer for  IMU packets
 //uint8_t rxbuf_ef[128] = {0};  //buffer for estimation filter packets
 
 /* Define mailbox for thread safe exchange between interupt and main loop*/
-QueueHandle_t rawAcc_mailbox;
-QueueHandle_t rawGyro_mailbox;
+QueueHandle_t procGyro_mailbox;
 QueueHandle_t procAcc_mailbox;
-QueueHandle_t procEuler_mailbox;
+QueueHandle_t Quat_mailbox;
+//QueueHandle_t procEuler_mailbox;
 
 //QueueHandle_t imu_mailbox;
 //QueueHandle_t ef_mailbox;
 
 int intr_cpt = 0;
-uint8_t read_index_rawAcc = 0; //where to read the latest updated data
-uint8_t read_index_rawGyro = 0; //where to read the latest updated data
+uint8_t read_index_procGyro = 0; //where to read the latest updated data
 uint8_t read_index_procAcc = 0; //where to read the latest updated data
-uint8_t read_index_procEuler = 0; //where to read the latest updated data
+uint8_t read_index_Quat = 0; //where to read the latest updated data
+//uint8_t read_index_procEuler = 0; //where to read the latest updated data
 
 //uint8_t read_index_imu = 0; //where to read the latest updated imu data
 //uint8_t read_index_ef = 0;  //where to read the latest updated ef data
@@ -143,18 +144,18 @@ static void IRAM_ATTR uart_intr_handle(void *arg)
         }
         switch (rxbuf[i + 4]) //Adresse im 5ten PAketbyte checken
         {
-        case (0x59): //erstes Register für RawAcc -> is BAtch, also hängen die DAten aneinander in einem PAcket => X, Y, Z, 
-            xQueueOverwriteFromISR(rawAcc_mailbox, &rxbuf[i], NULL);
+        case (0x61): //erstes Register für procGyro -> is BAtch, also hängen die DAten aneinander in einem PAcket => X, Y, Z, 
+            xQueueOverwriteFromISR(procGyro_mailbox, &rxbuf[i], NULL);
             break;
-        case (0x56): //erstes Register für RawGyro
-            xQueueOverwriteFromISR(rawGyro_mailbox, &rxbuf[i], NULL);
-            break;
-        case (0x65): //erstes Register für ProcAcc
+        case (0x65): //erstes Register für procAcc
             xQueueOverwriteFromISR(procAcc_mailbox, &rxbuf[i], NULL);
             break;
-        case (0x70): //erstes Register für ProcEuler
-            xQueueOverwriteFromISR(procEuler_mailbox, &rxbuf[i], NULL);
+        case (0x6D): //erstes Register für Quat
+            xQueueOverwriteFromISR(Quat_mailbox, &rxbuf[i], NULL);
             break;
+//        case (0x70): //erstes Register für ProcEuler
+//            xQueueOverwriteFromISR(procEuler_mailbox, &rxbuf[i], NULL);
+//            break;
         default:
             break; // We don't deal with this descriptor
         }
@@ -181,41 +182,44 @@ inline bool check_IMU_CRC(unsigned char *data, int len)
 inline int parse_IMU_data()
 {
 
-    xQueuePeek(rawAcc_mailbox, &rxbuf_rawAcc, 0);
-    xQueuePeek(rawGyro_mailbox, &rxbuf_rawGyro, 0);
+    xQueuePeek(procGyro_mailbox, &rxbuf_procGyro, 0);
     xQueuePeek(procAcc_mailbox, &rxbuf_procAcc, 0);
-    xQueuePeek(procEuler_mailbox, &rxbuf_procEuler, 0);
+    xQueuePeek(Quat_mailbox, &rxbuf_Quat, 0);
+//    xQueuePeek(procEuler_mailbox, &rxbuf_procEuler, 0);
 
     /***rawAcc****/
     //(check_IMU_CRC(rxbuf_imu, 34))
     if (1)
     {
-        imu.acc_x.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_rawAcc, ACCX_POS);	// z.B. (HEADER:) 73 6e 70 cc (Adresse:) 59 (AccelX 2er Komplement:) 00 42 (AccelY 2er Komplement:) ff df (AccelZ 2er Komplement:) ef 74 (Reserviert:) 00 00 (AccelTime:) 45 d7 47 64 (Checksum:) 07 c0
-        imu.acc_y.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_rawAcc, ACCY_POS);
-        imu.acc_z.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_rawAcc, ACCZ_POS);
+        imu.gyr_x.ul = FLOAT_FROM_DOUBLE_BYTE_ARRAY(rxbuf_procGyro, GYRX_POS);
+        imu.gyr_y.ul = FLOAT_FROM_DOUBLE_BYTE_ARRAY(rxbuf_procGyro, GYRY_POS);
+        imu.gyr_z.ul = FLOAT_FROM_DOUBLE_BYTE_ARRAY(rxbuf_procGyro, GYRZ_POS);
     }
     /***rawGyro****/
 	if (1)
     {
-        imu.gyr_x.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_rawGyro, GYRX_POS);
-        imu.gyr_y.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_rawGyro, GYRY_POS);
-        imu.gyr_z.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_rawGyro, GYRZ_POS);
+        imu.acc_x.ul = FLOAT_FROM_DOUBLE_BYTE_ARRAY(rxbuf_procAcc, ACCX_POS);	// z.B. (HEADER:) 73 6e 70 cc (Adresse:) 65 (AccelX 2er Komplement:) 00 42 (AccelY 2er Komplement:) ff df (AccelZ 2er Komplement:) ef 74 (Reserviert:) 00 00 (AccelTime:) 45 d7 47 64 (Checksum:) 07 c0
+        imu.acc_y.ul = FLOAT_FROM_DOUBLE_BYTE_ARRAY(rxbuf_procAcc, ACCY_POS);
+        imu.acc_z.ul = FLOAT_FROM_DOUBLE_BYTE_ARRAY(rxbuf_procAcc, ACCZ_POS);
+
     }
     /***procAcc****/
     //(check_IMU_CRC(rxbuf_ef, 38))
     if (1)
     {
-		imu.linacc_x.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_procAcc, LINACCX_POS);
-        imu.linacc_y.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_procAcc, LINACCY_POS);
-        imu.linacc_z.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_procAcc, LINACCZ_POS);
+		imu.quat_a.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_Quat, QUATA_POS);
+        imu.quat_b.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_Quat, QUATB_POS);
+        imu.quat_c.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_Quat, QUATC_POS);
+        imu.quat_d.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_Quat, QUATD_POS);
+
     }
-    /***procEuler****/
-    if (1)
-    {
-        imu.roll.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_procEuler, R_POS);
-        imu.pitch.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_procEuler, P_POS);
-        imu.yaw.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_procEuler, Y_POS);
-    }
+//    /***procEuler****/
+//    if (1)
+//    {
+//        imu.roll.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_procEuler, R_POS);
+//        imu.pitch.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_procEuler, P_POS);
+//        imu.yaw.ul = FLOAT_FROM_BYTE_ARRAY(rxbuf_procEuler, Y_POS);
+//    }
     return 0;
 }
 
@@ -227,29 +231,30 @@ uint16_t get_gyr_x_in_D16QN() { return FLOAT_TO_D16QN(imu.gyr_x.f, IMU_QN_GYR); 
 uint16_t get_gyr_y_in_D16QN() { return FLOAT_TO_D16QN(imu.gyr_y.f, IMU_QN_GYR); }
 uint16_t get_gyr_z_in_D16QN() { return FLOAT_TO_D16QN(imu.gyr_z.f, IMU_QN_GYR); }
 
-uint16_t get_roll_in_D16QN() { return FLOAT_TO_D16QN(imu.roll.f, IMU_QN_EF); }
-uint16_t get_pitch_in_D16QN() { return FLOAT_TO_D16QN(imu.pitch.f, IMU_QN_EF); }
-uint16_t get_yaw_in_D16QN() { return FLOAT_TO_D16QN(imu.yaw.f, IMU_QN_EF); }
+uint16_t get_linacc_x_in_D16QN() { return FLOAT_TO_D16QN(imu.acc_x.f, IMU_QN_ACC); }
+uint16_t get_linacc_y_in_D16QN() { return FLOAT_TO_D16QN(imu.acc_y.f, IMU_QN_ACC); }
+uint16_t get_linacc_z_in_D16QN() { return FLOAT_TO_D16QN(imu.acc_z.f, IMU_QN_ACC); }
 
-uint16_t get_linacc_x_in_D16QN() { return FLOAT_TO_D16QN(imu.linacc_x.f, IMU_QN_ACC); }
-uint16_t get_linacc_y_in_D16QN() { return FLOAT_TO_D16QN(imu.linacc_y.f, IMU_QN_ACC); }
-uint16_t get_linacc_z_in_D16QN() { return FLOAT_TO_D16QN(imu.linacc_z.f, IMU_QN_ACC); }
+uint16_t get_roll_in_D16QN() { return 1; }
+uint16_t get_pitch_in_D16QN() { return 1; }
+uint16_t get_yaw_in_D16QN() { return 1; }
 
 void print_imu()
 {
-    printf("\n%.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f",
+    printf("\n%.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f",
            imu.acc_x.f,
            imu.acc_y.f,
            imu.acc_z.f,
            imu.gyr_x.f,
            imu.gyr_y.f,
            imu.gyr_z.f,
-           imu.roll.f,
-           imu.pitch.f,
-           imu.yaw.f,
-           imu.linacc_x.f,
-           imu.linacc_y.f,
-           imu.linacc_z.f);
+           imu.quat_a.f,
+           imu.quat_b.f,
+           imu.quat_c.f,
+           imu.quat_d.f);
+//           imu.roll.f,
+//           imu.pitch.f,
+//           imu.yaw.f,
 }
 
 void print_table(uint8_t *ptr, int len)
@@ -275,11 +280,11 @@ int imu_init()
     /* Init uart */
     printf("Initialising uart for IMUF...\n");
 
-    rawAcc_mailbox = xQueueCreate(1, 128);
-    rawGyro_mailbox = xQueueCreate(1, 128);
+    procGyro_mailbox = xQueueCreate(1, 128);
     procAcc_mailbox = xQueueCreate(1, 128);
-    procEuler_mailbox = xQueueCreate(1, 128);
-    //Configure UART 115200 bauds
+    Quat_mailbox = xQueueCreate(1, 128);
+//  procEuler_mailbox = xQueueCreate(1, 128);
+//	Configure UART 115200 bauds
     uart_config_t uart_config = {
         .baud_rate = 115200,
         .data_bits = UART_DATA_8_BITS,
@@ -290,11 +295,11 @@ int imu_init()
     uart_param_config(UART_NUM, &uart_config);
     uart_set_rx_timeout(UART_NUM, 3); //timeout in symbols, this will generate an interrupt per RX data frame
     uart_set_pin(UART_NUM, PIN_TXD, PIN_RXD, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    const char cmd0[11] = {0x73, 0x6E, 0x70, 0x80, 0x01, 0x03, 0x03, 0x00, 0x00, 0x01, 0xD8};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 01, Daten: 03 03 00 00 Raw Accel 3Hz, Raw Gyro 3Hz, Raw Mag 0Hz, Checksum 1 & 0: 01 D8
+    const char cmd0[11] = {0x73, 0x6E, 0x70, 0x80, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD2};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 01, Daten: 00 00 00 00 Raw Accel 0Hz, Raw Gyro 3Hz, Raw Mag 0Hz, Checksum 1 & 0: 01 D2
     const char cmd1[11] = {0x73, 0x6E, 0x70, 0x80, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD3};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 02, Daten: 00 00 00 00
-    const char cmd2[11] = {0x73, 0x6E, 0x70, 0x80, 0x03, 0x03, 0x00, 0x00, 0x00, 0x01, 0xD7};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 03, Daten: 03 00 00 00 Proc Accel 3Hz, Proc Gyro 0Hz, Proc Mag 0Hz, Checksum 1 & 0: 01 D7
+    const char cmd2[11] = {0x73, 0x6E, 0x70, 0x80, 0x03, 0x03, 0x03, 0x00, 0x00, 0x01, 0xDA};	    	 		            // PACKET: 's', 'n', 'p', 10000000, Adresse 03, Daten: 03 03 00 00 Proc Accel 3Hz, Proc Gyro 3Hz, Proc Mag 0Hz, Checksum 1 & 0: 01 DA
     const char cmd3[11] = {0x73, 0x6E, 0x70, 0x80, 0x04, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD5};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 04, Daten: 00 00 00 00
-    const char cmd4[11] = {0x73, 0x6E, 0x70, 0x80, 0x05, 0x00, 0x03, 0x00, 0x00, 0x01, 0xD9};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 05, Daten: 03 00 00 00 Quat 0Hz, Euler 3Hz, Pos 0Hz, Vel 0Hz, Checksum 1 & 0: 01 D9
+    const char cmd4[11] = {0x73, 0x6E, 0x70, 0x80, 0x05, 0x03, 0x00, 0x00, 0x00, 0x01, 0xD9};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 05, Daten: 03 00 00 00 Quat 3Hz, Euler 0Hz, Pos 0Hz, Vel 0Hz, Checksum 1 & 0: 01 D9
     const char cmd5[11] = {0x73, 0x6E, 0x70, 0x80, 0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD7};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 06, Daten: 00 00 00 00
     const char cmd6[11] = {0x73, 0x6E, 0x70, 0x80, 0x07, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD8};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 07, Daten: 00 00 00 00
     vTaskDelay(100 / portTICK_PERIOD_MS); //Let the IMU some time to boot    (TODO: read uart and wait for IMU acknoledgment on cmd0 to optimize boot time and/or detect the absence of IMU)
@@ -321,20 +326,20 @@ int imu_init()
     uart_isr_register(UART_NUM, uart_intr_handle, NULL, ESP_INTR_FLAG_IRAM, &handle_console);
     uart_enable_rx_intr(UART_NUM);
     
-    while (1) //for debug
+    while (0) //for debug
     {
         parse_IMU_data();
         printf(" intr_cpt:%d\n", intr_cpt);
         printf("rxbuf: %d      ", test);
         print_table(rxbuf, 80);
         printf("rxbuf_rawAcc: ");
-        print_table(rxbuf_rawAcc, 80);
+        print_table(rxbuf_procGyro, 80);
         printf("rxbuf_rawGyro: ");
-        print_table(rxbuf_rawGyro, 80);
-        printf("rxbuf_procAcc: ");
         print_table(rxbuf_procAcc, 80);
-        printf("rxbuf_procEuler: ");
-        print_table(rxbuf_procEuler, 80);
+        printf("rxbuf_procAcc: ");
+        print_table(rxbuf_Quat, 80);
+//        printf("rxbuf_procEuler: ");
+//        print_table(rxbuf_procEuler, 80);
         print_imu();
         vTaskDelay(300/portTICK_PERIOD_MS);
     }
