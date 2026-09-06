@@ -30,8 +30,8 @@
 
 
 /* Qvalues for each fields */
-#define IMU_QN_ACC 0
-#define IMU_QN_GYR 0
+#define IMU_QN_ACC 11
+#define IMU_QN_GYR 11
 #define IMU_QN_EF 0
 
 union float_int
@@ -133,7 +133,7 @@ static void IRAM_ATTR uart_intr_handle(void *arg)
         {	
 			size = 7;
 		}
-		test = rxbuf[i + 3];
+		test = size;
         if (rxbuf[i] != 0x73 || rxbuf[i + 1] != 0x6E || rxbuf[i + 2] != 0x70)
         {
             break; //The data doesn't look like the expected header
@@ -223,13 +223,13 @@ inline int parse_IMU_data()
     return 0;
 }
 
-uint16_t get_acc_x_in_D16QN() { return FLOAT_TO_D16QN(imu.acc_x.f, IMU_QN_ACC); }
-uint16_t get_acc_y_in_D16QN() { return FLOAT_TO_D16QN(imu.acc_y.f, IMU_QN_ACC); }
-uint16_t get_acc_z_in_D16QN() { return FLOAT_TO_D16QN(imu.acc_z.f, IMU_QN_ACC); }
-
 uint16_t get_gyr_x_in_D16QN() { return FLOAT_TO_D16QN(imu.gyr_x.f, IMU_QN_GYR); }
 uint16_t get_gyr_y_in_D16QN() { return FLOAT_TO_D16QN(imu.gyr_y.f, IMU_QN_GYR); }
 uint16_t get_gyr_z_in_D16QN() { return FLOAT_TO_D16QN(imu.gyr_z.f, IMU_QN_GYR); }
+
+uint16_t get_acc_x_in_D16QN() { return FLOAT_TO_D16QN(imu.acc_x.f, IMU_QN_ACC); }
+uint16_t get_acc_y_in_D16QN() { return FLOAT_TO_D16QN(imu.acc_y.f, IMU_QN_ACC); }
+uint16_t get_acc_z_in_D16QN() { return FLOAT_TO_D16QN(imu.acc_z.f, IMU_QN_ACC); }
 
 uint16_t get_linacc_x_in_D16QN() { return FLOAT_TO_D16QN(imu.acc_x.f, IMU_QN_ACC); }
 uint16_t get_linacc_y_in_D16QN() { return FLOAT_TO_D16QN(imu.acc_y.f, IMU_QN_ACC); }
@@ -295,13 +295,18 @@ int imu_init()
     uart_param_config(UART_NUM, &uart_config);
     uart_set_rx_timeout(UART_NUM, 3); //timeout in symbols, this will generate an interrupt per RX data frame
     uart_set_pin(UART_NUM, PIN_TXD, PIN_RXD, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    const char cmd0[11] = {0x73, 0x6E, 0x70, 0x80, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD2};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 01, Daten: 00 00 00 00 Raw Accel 0Hz, Raw Gyro 3Hz, Raw Mag 0Hz, Checksum 1 & 0: 01 D2
-    const char cmd1[11] = {0x73, 0x6E, 0x70, 0x80, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD3};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 02, Daten: 00 00 00 00
-    const char cmd2[11] = {0x73, 0x6E, 0x70, 0x80, 0x03, 0x03, 0x03, 0x00, 0x00, 0x01, 0xDA};	    	 		            // PACKET: 's', 'n', 'p', 10000000, Adresse 03, Daten: 03 03 00 00 Proc Accel 3Hz, Proc Gyro 3Hz, Proc Mag 0Hz, Checksum 1 & 0: 01 DA
-    const char cmd3[11] = {0x73, 0x6E, 0x70, 0x80, 0x04, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD5};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 04, Daten: 00 00 00 00
-    const char cmd4[11] = {0x73, 0x6E, 0x70, 0x80, 0x05, 0x03, 0x00, 0x00, 0x00, 0x01, 0xD9};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 05, Daten: 03 00 00 00 Quat 3Hz, Euler 0Hz, Pos 0Hz, Vel 0Hz, Checksum 1 & 0: 01 D9
-    const char cmd5[11] = {0x73, 0x6E, 0x70, 0x80, 0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD7};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 06, Daten: 00 00 00 00
-    const char cmd6[11] = {0x73, 0x6E, 0x70, 0x80, 0x07, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD8};                               // PACKET: 's', 'n', 'p', 10000000, Adresse 07, Daten: 00 00 00 00
+    const char cmd0[11] = {0x73, 0x6E, 0x70, 0x80, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD2};                               // COMRates1 PACKET: 's', 'n', 'p', 10000000, Adresse 01, Daten: 00 00 00 00 Raw Accel 0Hz, Raw Gyro 3Hz, Raw Mag 0Hz, Checksum 1 & 0: 01 D2
+    const char cmd1[11] = {0x73, 0x6E, 0x70, 0x80, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD3};                               // COMRates2 PACKET: 's', 'n', 'p', 10000000, Adresse 02, Daten: 00 00 00 00
+    const char cmd2[11] = {0x73, 0x6E, 0x70, 0x80, 0x03, 0x03, 0x03, 0x00, 0x00, 0x01, 0xDA};	    	 		            // COMRates3 PACKET: 's', 'n', 'p', 10000000, Adresse 03, Daten: 03 03 00 00 Proc Accel 3Hz, Proc Gyro 3Hz, Proc Mag 0Hz, Checksum 1 & 0: 01 DA
+    const char cmd3[11] = {0x73, 0x6E, 0x70, 0x80, 0x04, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD5};                               // COMRates4 PACKET: 's', 'n', 'p', 10000000, Adresse 04, Daten: 00 00 00 00
+    const char cmd4[11] = {0x73, 0x6E, 0x70, 0x80, 0x05, 0x03, 0x00, 0x00, 0x00, 0x01, 0xD9};                               // COMRates5 PACKET: 's', 'n', 'p', 10000000, Adresse 05, Daten: 03 00 00 00 Quat 3Hz, Euler 0Hz, Pos 0Hz, Vel 0Hz, Checksum 1 & 0: 01 D9
+    const char cmd5[11] = {0x73, 0x6E, 0x70, 0x80, 0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD7};                               // COMRates6 PACKET: 's', 'n', 'p', 10000000, Adresse 06, Daten: 00 00 00 00
+    const char cmd6[11] = {0x73, 0x6E, 0x70, 0x80, 0x07, 0x00, 0x00, 0x00, 0x00, 0x01, 0xD8};                               // COMRates7 PACKET: 's', 'n', 'p', 10000000, Adresse 07, Daten: 00 00 00 00
+    const char cmd7[11] = {0x73, 0x6E, 0x70, 0x80, 0x08, 0x00, 0x00, 0x00, 0x03, 0x01, 0xDC};                               // COMMisc PACKET: 's', 'n', 'p', 10000000, Adresse 08, Daten: 00 00 00 07 Bit2: Gyro beim Starten nullen, Bit1: Quaternionen nutzen, statt Euler, Bit0: Magnetometer für den Zustand nutzen
+    
+    // Flash Kommando:
+    //const char cmd8[7] = {0x73, 0x6E, 0x70, 0x00, 0xAB, 0x01, 0xFC};                               							// Command Flash PACKET: 's', 'n', 'p', 00000000, Adresse AB, Daten: 0x00, 0xAB, 0x01, 0xFC
+
     vTaskDelay(100 / portTICK_PERIOD_MS); //Let the IMU some time to boot    (TODO: read uart and wait for IMU acknoledgment on cmd0 to optimize boot time and/or detect the absence of IMU)
     custom_write_uart(cmd0, sizeof(cmd0));
     vTaskDelay(3);
@@ -317,6 +322,10 @@ int imu_init()
     vTaskDelay(3);
     custom_write_uart(cmd6, sizeof(cmd6));
     vTaskDelay(3);
+    custom_write_uart(cmd7, sizeof(cmd7));
+    vTaskDelay(3);
+    //custom_write_uart(cmd8, sizeof(cmd8));
+    //vTaskDelay(3);
     
     uart_set_baudrate(UART_NUM, 115200); //statt 921600
     uart_driver_install(UART_NUM, BUF_SIZE * 2, 0, 0, NULL, 0);
@@ -326,17 +335,17 @@ int imu_init()
     uart_isr_register(UART_NUM, uart_intr_handle, NULL, ESP_INTR_FLAG_IRAM, &handle_console);
     uart_enable_rx_intr(UART_NUM);
     
-    while (0) //for debug
+    while (1) //for debug
     {
         parse_IMU_data();
         printf(" intr_cpt:%d\n", intr_cpt);
         printf("rxbuf: %d      ", test);
         print_table(rxbuf, 80);
-        printf("rxbuf_rawAcc: ");
+        printf("rxbuf_procGyro: ");
         print_table(rxbuf_procGyro, 80);
-        printf("rxbuf_rawGyro: ");
-        print_table(rxbuf_procAcc, 80);
         printf("rxbuf_procAcc: ");
+        print_table(rxbuf_procAcc, 80);
+        printf("rxbuf_Quaternion: ");
         print_table(rxbuf_Quat, 80);
 //        printf("rxbuf_procEuler: ");
 //        print_table(rxbuf_procEuler, 80);
